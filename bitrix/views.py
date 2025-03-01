@@ -4,16 +4,16 @@ import json
 import openai
 import time
 import re  
+import whisper
+from datetime import timedelta
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-import whisper
-import requests
 
 
-BITRIX24_WEBHOOK = os.getenv("BITRIX24_WEBHOOK")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+
+print(f"🔑 BITRIX_WEBHOOK_BASE: {BITRIX_WEBHOOK_BASE}")
+
 
 
 print(f"🔑 OpenAI API Key: {openai.api_key}")
@@ -162,10 +162,10 @@ def download_audio(file_id):
                 if match:
                     filename = match.group(1)
 
-        # ✅ Sanitize filename to avoid special character issues
-        filename = re.sub(r'[\\/*?:"<>|;]', '_', filename)  # Replace special characters with '_'
+        
+        filename = re.sub(r'[\\/*?:"<>|;]', '_', filename)  
 
-        # ✅ Ensure file has an .mp3 extension
+       
         if not filename.endswith(".mp3"):
             filename += ".mp3"
 
@@ -197,107 +197,46 @@ def download_audio(file_id):
     except Exception as e:
         print(f"❌ Exception while downloading: {e}")
         return None
+    
 
-# ✅ Load API key from settings
-
+def format_timestamp(seconds):
+    """Converts seconds to HH:MM:SS format."""
+    return str(timedelta(seconds=int(seconds)))
 
 model = whisper.load_model("base")
 print("Whisper loaded successfully!")
 
-
 def transcribe_audio(audio_path):
-    """Transcribes the MP3 file using OpenAI Whisper locally (free version)."""
+    """Transcribes the MP3 file using OpenAI Whisper locally (free version) with timestamps and speaker labels, only in English."""
     if not os.path.exists(audio_path):
         print(f"❌ Audio file not found: {audio_path}")
         return None
 
     try:
         print(f"📢 Transcribing {audio_path} locally using Whisper...")
-        model = whisper.load_model("base")  # Choose from 'tiny', 'base', 'small', 'medium', 'large'
-        result = model.transcribe(audio_path)
-        transcription = result["text"]
-        print(f"✅ Transcription Success: {transcription}")
+        result = model.transcribe(audio_path, word_timestamps=True, language='en')
+        segments = result.get("segments", [])
 
+        transcription = ""
+        speaker_count = 1  
+        
+        for segment in segments:
+             start_time = format_timestamp(segment["start"])
+             text = segment["text"].strip()
+    
+    # Alternate between "Sales Executive" and "Client"
+             speaker = "Sales Executive" if speaker_count % 2 == 1 else "Client"
+    
+             transcription += f"[{start_time}] {speaker}: {text}\n"
+             speaker_count += 1
+
+
+        print(f"✅ Transcription Success:\n{transcription}")
         return transcription
 
     except Exception as e:
         print(f"❌ Unexpected Transcription Error: {e}")
         return None
-    
-
-    
-
-
-
-# MODEL = "mistralai/Mistral-7B-Instruct-v0.1"
-# HF_API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
-
-# def analyze_feedback(transcription):
-#     """Generates sentiment analysis and feedback in English using Hugging Face API with retries."""
-#     if not transcription:
-#         print("⚠️ Empty transcription provided. Skipping analysis.")
-#         return "Error: No transcription available."
-
-#     prompt = f"Analyze the following conversation and provide feedback in English:\n\n{transcription}"
-#     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
-#     payload = {"inputs": prompt}
-
-#     # Retry logic
-#     max_retries = 5
-#     for attempt in range(max_retries):
-#         try:
-#             print(f"📢 Sending transcription to Hugging Face API... Attempt {attempt + 1}/{max_retries}")
-#             response = requests.post(HF_API_URL, headers=headers, json=payload)
-
-#             if response.status_code == 200:
-#                 feedback = response.json()[0].get("generated_text", "No feedback generated.")
-#                 print(f"✅ Feedback Generated: {feedback}")
-#                 return feedback
-#             elif response.status_code == 503:  # Service Unavailable
-#                 wait_time = 2 ** attempt  # Exponential backoff (2s, 4s, 8s, 16s)
-#                 print(f"❌ API is down. Retrying in {wait_time} seconds...")
-#                 time.sleep(wait_time)
-#             else:
-#                 print(f"❌ Hugging Face API Error: {response.status_code} - {response.text}")
-#                 break  # Exit loop on non-retryable errors
-
-#         except requests.RequestException as e:
-#             print(f"❌ Hugging Face API Request Error: {e}")
-#             break
-
-#     return "Error generating feedback."
-
-    
-# from transformers import pipeline
-
-# # Load sentiment analysis model
-# sentiment_analyzer = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment-latest")
-
-# def analyze_sentiment(transcription):
-#     """Performs sentiment analysis on the conversation."""
-#     if not transcription:
-#         return "Error: No transcription available."
-
-#     try:
-#         print("📢 Performing sentiment analysis...")
-#         sentiment_result = sentiment_analyzer(transcription)
-#         sentiment = sentiment_result[0]["label"]  # Example: "POSITIVE"
-#         print(f"✅ Sentiment Detected: {sentiment}")
-#         return sentiment
-#     except Exception as e:
-#         print(f"❌ Sentiment Analysis Error: {e}")
-#         return "Error analyzing sentiment."
-
-# def process_transcription(transcription):
-#     """Processes a call transcription to generate feedback and sentiment."""
-#     feedback = analyze_feedback(transcription)
-#     sentiment = analyze_sentiment(transcription)
-
-#     return {"feedback": feedback, "sentiment": sentiment}
-
-
-
-# openai code
 
 
 def analyze_feedback(transcription):
@@ -308,7 +247,6 @@ def analyze_feedback(transcription):
 
     prompt = f"Analyze and provide brutal in details suggestions line by line for the sales executive including service knowledge and overall sales approach:\n\n{transcription}"
 
-    # Retry logic
     max_retries = 5
     for attempt in range(max_retries):
         try:
@@ -324,12 +262,12 @@ def analyze_feedback(transcription):
             print(f"✅ Feedback Generated: {feedback}")
             return feedback
         except openai.error.RateLimitError:
-            wait_time = 2 ** attempt  # Exponential backoff
+            wait_time = 2 ** attempt 
             print(f"❌ OpenAI API rate limit reached. Retrying in {wait_time} seconds...")
             time.sleep(wait_time)
         except openai.error.OpenAIError as e:
             print(f"❌ OpenAI API Error: {e}")
-            break  # Exit loop on non-retryable errors
+            break  
 
     return "Error generating feedback."
 
@@ -349,7 +287,7 @@ def analyze_sentiment(transcription):
             temperature=0.0
         )
 
-        sentiment = response.choices[0].message["content"].strip()  # Example: "Positive"
+        sentiment = response.choices[0].message["content"].strip() 
         print(f"✅ Sentiment Detected: {sentiment}")
         return sentiment
     except openai.error.OpenAIError as e:
@@ -373,11 +311,10 @@ def post_feedback_to_bitrix(lead_id, transcription, feedback, sentiment):
         print("⚠️ No valid transcription provided. Skipping Bitrix24 update.")
         return
 
-    # First Comment: Transcription
+
     transcription_comment = f"📝 **Call Transcription:**\n{transcription}"
     post_comment_to_bitrix(lead_id, transcription_comment)
 
-    # Second Comment: Feedback + Sentiment
     if feedback and not feedback.startswith("Error"):
         feedback_sentiment_comment = f"📢 **AI Feedback:** {feedback}\n\n😊 **Sentiment:** {sentiment}"
         post_comment_to_bitrix(lead_id, feedback_sentiment_comment)
@@ -403,8 +340,7 @@ def post_comment_to_bitrix(lead_id, comment_text):
             else:
                 print(f"❌ Failed to post: {response.status_code} - {response.text}")
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
-
+                    time.sleep(2 ** attempt)  
         except requests.RequestException as e:
             print(f"❌ Bitrix24 API Request Error: {e}")
             if attempt < max_retries - 1:

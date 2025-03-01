@@ -1,0 +1,7 @@
+django
+requests
+openai
+whisper
+numpy
+torch
+ngrok
