@@ -9,11 +9,18 @@ from datetime import timedelta
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from dotenv import load_dotenv
+
+load_dotenv()
+openai.api_key = os.getenv("openai.api_key")
+BITRIX_WEBHOOK_BASE = os.getenv("BITRIX_WEBHOOK_BASE")
+
 
 
 
 print(f"🔑 BITRIX_WEBHOOK_BASE: {BITRIX_WEBHOOK_BASE}")
-
+# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
 
 print(f"🔑 OpenAI API Key: {openai.api_key}")
